@@ -1,6 +1,4 @@
 using System;
-using System.Collections;
-using Unity.VisualScripting;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
@@ -10,16 +8,17 @@ public class GiftEventTrigger : MonoBehaviour, IPointerDownHandler
     public static Action TriggerGiftDrop;
 
     [SerializeField] private Slider timelineSlider;
-     
 
     [SerializeField] private Transform giftGhost;
     [SerializeField] private Transform helicopterGhost;
     [SerializeField] private Transform helicopter;
+    [SerializeField] private RectTransform movablePanel;
+    [SerializeField] private float sensitivity = 1.0f;
 
     private Vector3[] trajectoryPoints = new Vector3[50];
     private float dropWay = 2;
     private bool isDropped = false;
-    private Coroutine currentCor;
+    private bool isActive = false;
     private Animator giftAnimator;
     private AudioSource sourse;
 
@@ -29,108 +28,110 @@ public class GiftEventTrigger : MonoBehaviour, IPointerDownHandler
         sourse = GetComponent<AudioSource>();
         giftAnimator = GetComponent<Animator>();
     }
-    private void OnTriggerEnter(Collider other)
+    private void Update()
     {
-        if (other.CompareTag("Time") && !isDropped)
+        if (isActive)
         {
-            TriggerGiftDrop?.Invoke();
-            isDropped = true;
-            DeactivateEvent();
+#if UNITY_EDITOR || UNITY_STANDALONE
+            HandleMouseInput();
+#endif
+
+#if UNITY_ANDROID || UNITY_IOS
+            HandleTouchInput();
+#endif
+        }
+    }
+
+    private void HandleMouseInput()
+    {
+        if (Input.GetMouseButton(0))
+        {
+            Vector2 localPoint;
+            RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                movablePanel, Input.mousePosition, null, out localPoint);
+
+            if (movablePanel.rect.Contains(localPoint))
+            {
+                Vector2 mouseDelta = new Vector2(Input.GetAxis("Mouse X"), Input.GetAxis("Mouse Y"));
+                float normalizedDelta = (mouseDelta.x / movablePanel.rect.width) * sensitivity; 
+                timelineSlider.value = Mathf.Clamp01(timelineSlider.value + normalizedDelta);
+                ShowHelicopterGhost();
+                ShowTrajectory();
+            }
+        }
+    }
+
+    private void HandleTouchInput()
+    {
+        if (Input.touchCount > 0)
+        {
+            Touch touch = Input.GetTouch(0);
+
+            Vector2 localPoint;
+            RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                movablePanel, touch.position, null, out localPoint);
+
+            if (movablePanel.rect.Contains(localPoint)) 
+            {
+                if (touch.phase == TouchPhase.Moved)
+                {
+                    Vector2 delta = touch.deltaPosition;
+                    float normalizedDelta = (delta.x / movablePanel.rect.width) * sensitivity; 
+                    timelineSlider.value = Mathf.Clamp01(timelineSlider.value + normalizedDelta);
+                    ShowHelicopterGhost();
+                    ShowTrajectory();
+                }
+            }
         }
     }
     public void OnPointerDown(PointerEventData eventData)
     {
-        if (currentCor == null)
+        if (!isActive)
         {
-            giftAnimator.SetBool("Drag", true);
-            currentCor = StartCoroutine(CheckIsSliderMove());
-            sourse.Play();
-        }
-        if (isDropped) return;
-
-        ShowHelicopterGhost();
-        if (timelineSlider.value >= 0.5)
-        {
-            dropWay = -2;
+            ActivateHandler();
         }
         else
         {
-            dropWay = 2;
+            DeactivateHandler();
         }
+    }
+
+    private void ActivateHandler()
+    {
+        isActive = true;
+        giftAnimator.SetBool("Drag", true);
+        sourse.Play();
+        ShowHelicopterGhost();
         ShowTrajectory();
     }
 
-    public void OnSliderValueChanged()
+    public void DeactivateHandler()
     {
-        if (currentCor == null)
-        {
-            giftAnimator.SetBool("Drag", true);
-            currentCor = StartCoroutine(CheckIsSliderMove());
-            sourse.Play();
-        }
-
-        if (isDropped) return;
-
-        ShowHelicopterGhost();
-        if (timelineSlider.value >= 0.5)
-        {
-            dropWay = -2;
-        }
-        else
-        {
-            dropWay = 2;
-        }
-        ShowTrajectory();   
-    }
-    private IEnumerator CheckIsSliderMove()
-    {
-        float lastSliderValue = timelineSlider.value;
-
-        float elapsedTime = 0f;
-
-        while (timelineSlider.value != lastSliderValue)
-        {
-            lastSliderValue = timelineSlider.value;
-            elapsedTime = 0f; 
-            yield return null; 
-        }
-
-        while (elapsedTime < 1f)
-        {
-            elapsedTime += Time.unscaledDeltaTime;
-            if (timelineSlider.value != lastSliderValue)
-            {
-                elapsedTime = 0f;
-                lastSliderValue = timelineSlider.value;
-            }
-
-            yield return null;  
-        }
-
-        OnSliderMovementFinished();
-    }
-    private void OnSliderMovementFinished()
-    {
+        isActive = false;
         giftAnimator.SetBool("Drag", false);
-        DeactivateEvent();
+        giftGhost.GetComponent<LineRenderer>().enabled = false;
+        helicopterGhost.gameObject.SetActive(false);
         sourse.Stop();
-        StopAllCoroutines();
-        currentCor = null;
     }
+
+
+
     private void ShowTrajectory()
     {
         LineRenderer trajectoryLine = giftGhost.GetComponent<LineRenderer>();
         trajectoryLine.positionCount = trajectoryPoints.Length;
 
         Vector3 startPosition = giftGhost.position;
-        Vector2 initialVelocity = new Vector2(dropWay, -2); 
+        if (timelineSlider.value > 0.5) dropWay = -2;
+        else dropWay = 2;
+        Vector2 initialVelocity = new Vector2(dropWay, -2);
 
         for (int i = 0; i < trajectoryPoints.Length; i++)
         {
-            float time = i * 0.1f; 
+            float time = i * 0.1f;
             trajectoryPoints[i] = startPosition + new Vector3(
                 initialVelocity.x * time,
-                initialVelocity.y * time + 0.5f * Physics2D.gravity.y * time * time, 
+                initialVelocity.y * time + 0.5f * Physics2D.gravity.y * time * time,
                 0);
         }
 
@@ -150,17 +151,23 @@ public class GiftEventTrigger : MonoBehaviour, IPointerDownHandler
         helicopterGhost.position = helicopterPosition;
         helicopterGhost.gameObject.SetActive(true);
     }
+
     public void SetIsDropped(bool isReturn)
     {
         isDropped = isReturn;
     }
-    private void DeactivateEvent()
-    {
-        giftGhost.GetComponent<LineRenderer>().enabled = false;
-        helicopterGhost.gameObject.SetActive(false);
-    }
+
     private void ClearAction()
     {
         TriggerGiftDrop = null;
+    }
+    private void OnTriggerEnter(Collider other)
+    {
+        if (other.CompareTag("Time") && !isDropped)
+        {
+            TriggerGiftDrop?.Invoke();
+            isDropped = true;
+            DeactivateHandler();
+        }
     }
 }

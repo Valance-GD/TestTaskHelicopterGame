@@ -14,6 +14,7 @@ public class TimeController : MonoBehaviour
     [SerializeField] private float recordInterval = 0.1f;
     [SerializeField] private AudioSource startSourse, stopSourse, rewindSourse;
     [SerializeField] private Gift gift;
+    [SerializeField] private GiftEventTrigger giftEvent;
 
     private bool isRewinding = false;
     private bool isPaused = false;
@@ -50,6 +51,7 @@ public class TimeController : MonoBehaviour
 
     public void StartTime()
     {
+        giftEvent.DeactivateHandler();
         OnTimeStart.Invoke();
         isPaused = false;
         isRewinding = false;
@@ -59,6 +61,7 @@ public class TimeController : MonoBehaviour
 
     public void PauseTime()
     {
+        giftEvent.DeactivateHandler();
         isPaused = true;
         isRewinding = false;
         Time.timeScale = 0f;
@@ -73,6 +76,7 @@ public class TimeController : MonoBehaviour
             OnStartRewind.Invoke();
             rewindSourse.Play();
             isRewinding = true;
+            giftEvent.DeactivateHandler();
             Time.timeScale = 1f;
         }
         foreach (var obj in trackedObjects)
